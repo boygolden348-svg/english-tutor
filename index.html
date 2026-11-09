@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>تكلّم بلا خوف – معلم المحادثة A1</title>
+<style>
+:root{--bg:#f7f6f2;--card:#fff;--ink:#1d2326;--mut:#6b7479;--acc:#0f766e;--accInk:#fff;--ai:#e4f2ef;--me:#eceae3;--tip:#fff4d6;--line:#dcd9d0;--warm:#c2410c;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#141819;--card:#1c2224;--ink:#e8ecec;--mut:#9aa5a8;--acc:#2dd4bf;--accInk:#062b27;--ai:#1b3330;--me:#262d2f;--tip:#3a3217;--line:#2f383a;--warm:#fb923c}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#141819;--card:#1c2224;--ink:#e8ecec;--mut:#9aa5a8;--acc:#2dd4bf;--accInk:#062b27;--ai:#1b3330;--me:#262d2f;--tip:#3a3217;--line:#2f383a;--warm:#fb923c}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;display:flex;flex-direction:column;max-width:560px;margin:0 auto;padding:0 14px}
+h1{font-size:1.15rem;margin:14px 0 8px}
+.row{display:flex;gap:8px;align-items:center}
+select,button{font:inherit;color:inherit}
+select{flex:1;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--card)}
+button{border:0;border-radius:10px;padding:10px 14px;background:var(--acc);color:var(--accInk);font-weight:600;cursor:pointer}
+button.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+button:disabled{opacity:.45}
+main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;min-height:0}
+#orb{width:170px;height:170px;border-radius:50%;border:0;font-size:3.2rem;display:flex;align-items:center;justify-content:center;background:var(--card);border:3px solid var(--line);color:var(--ink);transition:.2s}
+#orb.ai{border-color:var(--acc);background:var(--ai);animation:p 1.4s infinite}
+#orb.listen{border-color:var(--warm);animation:p 1s infinite}
+#orb.think{border-style:dashed}
+@keyframes p{50%{transform:scale(1.07)}}
+#status{font-size:1.1rem;font-weight:600;min-height:1.5em}
+#live{min-height:1.4em;color:var(--mut);direction:ltr;margin:0}
+#tip{background:var(--tip);padding:10px 12px;border-radius:12px;font-size:.95rem;line-height:1.5;display:none;max-width:100%}
+.tools{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+#log{display:none;width:100%;max-height:30vh;overflow-y:auto;flex-direction:column;gap:8px;text-align:left}
+#log.show{display:flex}
+.msg{max-width:90%;padding:8px 12px;border-radius:14px;direction:ltr}
+.ai{background:var(--ai);align-self:flex-start}
+.me{background:var(--me);align-self:flex-end}
+footer{padding:8px 0 14px;display:flex;justify-content:space-between;align-items:center;color:var(--mut);font-size:.9rem}
+label{display:flex;gap:6px;align-items:center}
+</style>
+</head>
+<body>
+<h1>🎙️ تكلّم بلا خوف</h1>
+<div class="row">
+  <select id="scn" aria-label="الموقف">
+    <option value="meeting a new person and introducing yourself (name, country, age)">التعارف</option>
+    <option value="talking about your family">العائلة</option>
+    <option value="ordering food and drink in a restaurant">المطعم</option>
+    <option value="buying things in a shop (price, how much)">السوق</option>
+    <option value="asking for directions in a city">الاتجاهات</option>
+  </select>
+  <button id="start">ابدأ</button>
+</div>
+
+<main>
+  <button id="orb" aria-label="تحدث">🎤</button>
+  <div id="status">اختر موقفاً واضغط «ابدأ»</div>
+  <p id="live"></p>
+  <div id="tip"></div>
+  <div class="tools">
+    <button class="ghost" id="rep" disabled>🔁 أعد الجملة</button>
+    <button class="ghost" id="help" disabled>🆘 ساعدني</button>
+    <button class="ghost" id="end" disabled>⏹ إنهاء</button>
+  </div>
+  <div id="log"></div>
+</main>
+
+<footer>
+  <span>لا يوجد خطأ هنا. المهم أن تتكلم 💪</span>
+  <label><input type="checkbox" id="show"> إظهار النص</label>
+</footer>
+
+<script>
+(function(){
+var $=function(i){return document.getElementById(i)};
+var orb=$("orb"),statusEl=$("status"),live=$("live"),tip=$("tip"),log=$("log");
+var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+var hist=[],scenario="",state="idle",active=false,rec=null,got="",misses=0,lastAI="";
+
+function setState(s,msg){
+  state=s;orb.className=s;
+  var icons={idle:"🎤",ai:"🔊",listen:"🎙️",think:"💭"};
+  orb.textContent=icons[s]||"🎤";
+  if(msg)statusEl.textContent=msg;
+  var on=active;
+  $("rep").disabled=!on||!lastAI;$("help").disabled=!on;$("end").disabled=!on;
+}
+function addMsg(cls,t){
+  var d=document.createElement("div");d.className="msg "+cls;d.textContent=t;
+  log.appendChild(d);log.scrollTop=log.scrollHeight;
+}
+function showTip(t){if(t){tip.textContent="💡 "+t;tip.style.display="block"}else{tip.style.display="none"}}
+
+function speak(t,cb){
+  var done=false;function fin(){if(!done){done=true;cb&&cb()}}
+  try{
+    speechSynthesis.cancel();
+    var u=new SpeechSynthesisUtterance(t);u.lang="en-US";u.rate=0.85;
+    u.onend=fin;u.onerror=fin;speechSynthesis.speak(u);
+    setTimeout(fin,Math.max(6000,t.length*180));
+  }catch(e){fin()}
+}
+
+function buildPrompt(extra){
+  var t=hist.map(function(m){return (m.who==="ai"?"Teacher: ":"Student: ")+m.text}).join("\n");
+  return "You are a warm, very patient English speaking partner for an Arabic-speaking beginner (CEFR A1) who is afraid of making mistakes. This is a VOICE conversation.\n"+
+  "Scenario: "+scenario+".\n"+
+  "Rules: reply in English, max 2 short sentences (max 8 words each), simple words. Start with a tiny encouragement when appropriate (Good! Nice try! Great!). End with one easy question. "+
+  "NEVER say the student is wrong. If there is a mistake, naturally repeat the correct sentence inside your reply (e.g. Student: I has a brother. You: Oh, you have a brother! Nice!). "+
+  "Put at most one very short Arabic note in \"tip\" only if a correction truly helps; otherwise tip is an empty string.\n"+
+  (extra||"")+
+  "Return ONLY JSON: {\"reply\":\"...\",\"tip\":\"...\"}\n\nConversation so far:\n"+(t||"(none yet: greet and ask the first easy question)")+"\n\nYour next turn:";
+}
+
+async function aiTurn(extra){
+  setState("think","أفكر…");live.textContent="";
+  try{
+    var resp=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:buildPrompt(extra)})});
+    if(resp.status===429)throw {code:"rate_limited"};
+    if(!resp.ok)throw new Error("x");
+    var r=await resp.json();
+    var s=(r.text||"").replace(/```json|```/g,"").trim(),o;
+    try{o=JSON.parse(s.slice(s.indexOf("{"),s.lastIndexOf("}")+1))}catch(e){o={reply:s,tip:""}}
+    if(!active)return;
+    lastAI=o.reply;hist.push({who:"ai",text:o.reply});addMsg("ai",o.reply);showTip(o.tip);
+    setState("ai","المعلم يتكلم… استمع");
+    speak(o.reply,function(){if(active)listen()});
+  }catch(e){
+    setState("idle",e&&e.code==="rate_limited"?"انتظر قليلاً ثم اضغط الميكروفون":"حدث خطأ، اضغط الميكروفون لتكمل");
+  }
+}
+
+function listen(){
+  if(!SR||!active)return;
+  got="";live.textContent="";
+  try{rec.start();setState("listen","دورك! تكلم الآن…")}catch(e){}
+}
+
+function userSays(t){
+  hist.push({who:"me",text:t});addMsg("me",t);misses=0;aiTurn();
+}
+
+if(SR){
+  rec=new SR();rec.lang="en-US";rec.interimResults=true;rec.continuous=false;
+  rec.onresult=function(e){
+    var t="";for(var i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;
+    got=t;live.textContent=t;
+  };
+  rec.onerror=function(e){
+    if(e.error==="not-allowed"){active=false;setState("idle","اسمح للمتصفح باستخدام الميكروفون")}
+  };
+  rec.onend=function(){
+    if(state!=="listen"||!active)return;
+    var t=got.trim();
+    if(t){userSays(t);return}
+    misses++;
+    if(misses<2){listen()}
+    else{misses=0;setState("idle","لم أسمعك. لا بأس! اضغط الميكروفون وجرّب مرة أخرى")}
+  };
+}else{
+  statusEl.textContent="المتصفح لا يدعم التعرف على الصوت. استخدم Chrome أو Safari";
+  $("start").disabled=true;
+}
+
+$("start").onclick=function(){
+  if(!SR)return;
+  scenario=$("scn").value;hist=[];lastAI="";log.innerHTML="";showTip("");misses=0;active=true;
+  aiTurn();
+};
+orb.onclick=function(){
+  if(!active)return;
+  if(state==="idle"){listen()}
+  else if(state==="listen"){try{rec.stop()}catch(e){}}
+  else if(state==="ai"){try{speechSynthesis.cancel()}catch(e){}}
+};
+$("rep").onclick=function(){
+  if(!lastAI)return;try{rec.abort()}catch(e){}
+  setState("ai","استمع مرة أخرى…");speak(lastAI,function(){if(active)listen()});
+};
+$("help").onclick=function(){
+  try{rec.abort()}catch(e){}try{speechSynthesis.cancel()}catch(e){}
+  aiTurn("The student asked for help. Say the same question again with even simpler words, and in tip give a short Arabic hint plus an example answer in English.");
+};
+$("end").onclick=function(){
+  active=false;try{rec.abort()}catch(e){}try{speechSynthesis.cancel()}catch(e){}
+  setState("idle","أحسنت! انتهت الجلسة. اضغط «ابدأ» لجلسة جديدة 🎉");
+};
+$("show").onchange=function(){log.classList.toggle("show",this.checked)};
+
+})();
+</script>
+</body>
+</html>
